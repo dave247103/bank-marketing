@@ -1,0 +1,12 @@
+pyspark>=3.5,<3.6
+pandas>=2.0
+pyarrow>=14
+numpy>=1.24
+matplotlib>=3.7
+kafka-python>=2.0
+ruff>=0.6
+black>=24.0
+pytest>=8.0
+pre-commit>=3.0
+python-dotenv>=1.0
+tqdm>=4.66
