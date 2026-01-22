@@ -3,8 +3,9 @@ import argparse
 from pyspark.ml import Pipeline
 from pyspark.ml.classification import LogisticRegression
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.feature import OneHotEncoder, StringIndexer, VectorAssembler
 from pyspark.sql import SparkSession, functions as F
+
+from features import build_preprocessing_stages, get_label_mapping
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,65 +40,19 @@ def main() -> None:
         df = spark.read.parquet(args.input)
 
         label_col = "y"
-        numeric_cols = [
-            "age",
-            "balance",
-            "day",
-            "duration",
-            "campaign",
-            "pdays",
-            "previous",
-        ]
-        categorical_cols = [
-            "job",
-            "marital",
-            "education",
-            "default",
-            "housing",
-            "loan",
-            "contact",
-            "month",
-            "poutcome",
-        ]
-
-        label_indexer = StringIndexer(
-            inputCol=label_col, outputCol="label", handleInvalid="error"
-        )
-        cat_indexers = [
-            StringIndexer(
-                inputCol=col_name,
-                outputCol=f"{col_name}_idx",
-                handleInvalid="keep",
-            )
-            for col_name in categorical_cols
-        ]
-        encoder = OneHotEncoder(
-            inputCols=[f"{col_name}_idx" for col_name in categorical_cols],
-            outputCols=[f"{col_name}_ohe" for col_name in categorical_cols],
-            handleInvalid="keep",
-        )
-        assembler = VectorAssembler(
-            inputCols=numeric_cols + [f"{col_name}_ohe" for col_name in categorical_cols],
-            outputCol="features",
-        )
+        preprocess_stages = build_preprocessing_stages(label_col=label_col)
         lr = LogisticRegression(featuresCol="features", labelCol="label")
         if lr.hasParam("seed"):
             lr.setSeed(args.seed)
 
-        pipeline = Pipeline(
-            stages=[label_indexer] + cat_indexers + [encoder, assembler, lr]
-        )
+        pipeline = Pipeline(stages=preprocess_stages + [lr])
 
         train_df, test_df = df.randomSplit([0.8, 0.2], seed=args.seed)
         model = pipeline.fit(train_df)
 
         preds = model.transform(test_df).cache()
 
-        label_model = model.stages[0]
-        label_values = list(label_model.labels)
-        if "yes" not in label_values or "no" not in label_values:
-            raise ValueError(f"Unexpected label mapping: {label_values}")
-        pos_label = label_values.index("yes")
+        label_values, pos_label = get_label_mapping(model)
         neg_label = label_values.index("no")
 
         tp = preds.filter(
