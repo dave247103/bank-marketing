@@ -1,12 +1,12 @@
 {
-  "count": 11,
+  "count": 10,
   "input": "report/stream_progress.jsonl",
   "maxOffsetsBehindLatest": 0.0,
   "processedRowsPerSecond": {
-    "avg": 51.51093649983266,
-    "median": 53.47985347985348
+    "avg": 50.91738596925258,
+    "median": 48.976984296465304
   },
   "triggerExecutionMs": {
-    "p95": 3053.0
+    "p95": 7436.899999999996
   }
 }

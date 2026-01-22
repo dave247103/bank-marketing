@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import signal
 import pyspark
 from pyspark.ml import PipelineModel
 from pyspark.ml.functions import vector_to_array
@@ -114,6 +115,14 @@ def main() -> None:
     )
     logger = logging.getLogger("bank-scorer")
 
+    stop_requested = False
+
+    def handle_sigterm(_signum, _frame):
+        nonlocal stop_requested
+        stop_requested = True
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
+
     if not os.path.exists(args.model):
         raise FileNotFoundError(f"Model path not found: {args.model}")
 
@@ -127,6 +136,7 @@ def main() -> None:
         SparkSession.builder.appName("bank-stream-scorer")
         .master("local[*]")
         .config("spark.jars.packages", packages)
+        .config("spark.sql.streaming.stopGracefullyOnShutdown", "true")
         .getOrCreate()
     )
     try:
@@ -279,13 +289,12 @@ def main() -> None:
             args.deadletter_topic,
         )
         queries = [query, deadletter_query]
-        while all(active_query.isActive for active_query in queries):
-            for active_query in queries:
-                active_query.awaitTermination(timeout=5)
-            progress = query.lastProgress
-            if progress:
-                logger.info("Streaming progress: %s", json.dumps(progress))
-                append_progress(args.progress_log, progress, logger)
+        while all(q.isActive for q in queries):
+            for q in queries:
+                q.awaitTermination(timeout=5)
+            if stop_requested:
+                logger.info("SIGTERM received; stopping streams gracefully.")
+                break
     except KeyboardInterrupt:
         logger.info("Stopping streaming query.")
     finally:

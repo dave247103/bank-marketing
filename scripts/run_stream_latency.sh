@@ -51,6 +51,7 @@ scorer_pid=""
 stop_process() {
   local pid="$1"
   local name="$2"
+  local wait_seconds="${3:-10}"
 
   if [[ -z "$pid" ]]; then
     return 0
@@ -60,12 +61,12 @@ stop_process() {
   fi
 
   echo "Stopping ${name} (pid ${pid})..."
-  kill -INT "$pid" 2>/dev/null || true
-  for _ in $(seq 1 20); do
+  kill -TERM "$pid" 2>/dev/null || true
+  for _ in $(seq 1 "$wait_seconds"); do
     if ! kill -0 "$pid" 2>/dev/null; then
       return 0
     fi
-    sleep 0.5
+    sleep 1
   done
 
   echo "Force killing ${name} (pid ${pid})..."
@@ -73,8 +74,8 @@ stop_process() {
 }
 
 cleanup() {
-  stop_process "$producer_pid" "producer"
-  stop_process "$scorer_pid" "scorer"
+  stop_process "$producer_pid" "producer" 10
+  stop_process "$scorer_pid" "scorer" 30
 }
 
 trap cleanup EXIT
