@@ -4,15 +4,18 @@ set -euo pipefail
 RATE=50
 WARMUP=15
 MAX_MESSAGES=5000
+MODEL="models/pipeline_lr"
+TAG=""
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/run_stream_latency.sh [--rate N] [--warmup SECONDS] [--max_messages N]
+Usage: bash scripts/run_stream_latency.sh [--rate N] [--warmup SECONDS] [--max_messages N] [--model PATH] [--tag TAG]
 
 Defaults:
   --rate 50
   --warmup 15
   --max_messages 5000
+  --model models/pipeline_lr
 EOF
 }
 
@@ -28,6 +31,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --max_messages)
       MAX_MESSAGES="$2"
+      shift 2
+      ;;
+    --model)
+      MODEL="$2"
+      shift 2
+      ;;
+    --tag)
+      TAG="$2"
       shift 2
       ;;
     -h|--help)
@@ -47,6 +58,29 @@ cd "$ROOT_DIR"
 
 producer_pid=""
 scorer_pid=""
+
+sanitize_tag() {
+  local raw="$1"
+  local cleaned
+  cleaned="$(echo "$raw" | tr -cs 'A-Za-z0-9._-' '_' | sed 's/^_//; s/_$//')"
+  if [[ -z "$cleaned" ]]; then
+    cleaned="run"
+  fi
+  echo "$cleaned"
+}
+
+if [[ -n "$TAG" ]]; then
+  TAG="$(sanitize_tag "$TAG")"
+else
+  TAG="$(sanitize_tag "$(basename "$MODEL")")"
+fi
+
+progress_path="report/stream_progress_${TAG}.jsonl"
+latency_path="report/stream_latency_${TAG}.json"
+summary_path="report/stream_summary_${TAG}.json"
+progress_latest="report/stream_progress.jsonl"
+latency_latest="report/stream_latency.json"
+summary_latest="report/stream_summary.json"
 
 stop_process() {
   local pid="$1"
@@ -110,10 +144,11 @@ create_topic "bank_scored"
 create_topic "bank_deadletter"
 
 rm -rf data/checkpoints
-rm -f report/stream_progress.jsonl report/stream_latency.json report/stream_summary.json
+rm -f "$progress_path" "$latency_path" "$summary_path"
+rm -f "$progress_latest" "$latency_latest" "$summary_latest"
 
 echo "Starting scorer..."
-python src/streaming/scorer.py --starting_offsets latest --progress_log report/stream_progress.jsonl &
+python src/streaming/scorer.py --starting_offsets latest --progress_log "$progress_path" --model "$MODEL" &
 scorer_pid=$!
 
 echo "Starting producer..."
@@ -130,7 +165,7 @@ group_id="bank-scored-consumer-${run_id}"
 
 python src/streaming/consumer.py \
   --max_messages "$MAX_MESSAGES" \
-  --latency_out report/stream_latency.json \
+  --latency_out "$latency_path" \
   --group "$group_id"
 
 cleanup
@@ -138,8 +173,13 @@ producer_pid=""
 scorer_pid=""
 
 python src/streaming/summarize_progress.py \
-  --input report/stream_progress.jsonl \
-  --out_json report/stream_summary.json
+  --input "$progress_path" \
+  --out_json "$summary_path"
+
+cp "$progress_path" "$progress_latest"
+cp "$latency_path" "$latency_latest"
+cp "$summary_path" "$summary_latest"
+
 python src/report/make_figures.py --out_dir report/figures
 
 python - <<'PY'

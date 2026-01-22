@@ -26,9 +26,9 @@ def parse_args() -> argparse.Namespace:
         help="Glob for tuning metrics JSON files.",
     )
     parser.add_argument(
-        "--latency_path",
-        default="report/stream_latency.json",
-        help="Streaming latency JSON summary.",
+        "--latency_glob",
+        default="report/stream_latency*.json",
+        help="Glob for streaming latency JSON summaries.",
     )
     return parser.parse_args()
 
@@ -143,19 +143,41 @@ def tuning_tables(tuning_glob: str):
     return metric_headers, metric_rows, param_headers, param_rows
 
 
-def streaming_latency_table(latency_path: str):
-    data = load_json(latency_path) or {}
-    headers = ["Count", "Avg (ms)", "Median (ms)", "p95 (ms)", "Min (ms)", "Max (ms)"]
-    rows = [
-        [
-            fmt_int(data.get("count")),
-            fmt_ms(data.get("avg")),
-            fmt_ms(data.get("median")),
-            fmt_ms(data.get("p95")),
-            fmt_ms(data.get("min")),
-            fmt_ms(data.get("max")),
-        ]
+def latency_run_label(path: str) -> str:
+    base = os.path.basename(path)
+    name = os.path.splitext(base)[0]
+    prefix = "stream_latency"
+    if name == prefix:
+        return "latest"
+    if name.startswith(prefix + "_"):
+        return name[len(prefix) + 1 :]
+    return name
+
+
+def streaming_latency_table(latency_glob: str):
+    headers = [
+        "Run",
+        "Count",
+        "Avg (ms)",
+        "Median (ms)",
+        "p95 (ms)",
+        "Min (ms)",
+        "Max (ms)",
     ]
+    rows = []
+    for path in sorted(glob(latency_glob)):
+        data = load_json(path) or {}
+        rows.append(
+            [
+                latency_run_label(path),
+                fmt_int(data.get("count")),
+                fmt_ms(data.get("avg")),
+                fmt_ms(data.get("median")),
+                fmt_ms(data.get("p95")),
+                fmt_ms(data.get("min")),
+                fmt_ms(data.get("max")),
+            ]
+        )
     return headers, rows
 
 
@@ -173,7 +195,7 @@ def main() -> None:
     add_table(lines, "Tuning metrics", metric_headers, metric_rows)
     add_table(lines, "Tuning parameters", param_headers, param_rows)
 
-    latency_headers, latency_rows = streaming_latency_table(args.latency_path)
+    latency_headers, latency_rows = streaming_latency_table(args.latency_glob)
     add_table(lines, "Streaming latency", latency_headers, latency_rows)
 
     out_dir = os.path.dirname(args.out_path)

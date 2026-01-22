@@ -120,6 +120,7 @@ def main() -> None:
     def handle_sigterm(_signum, _frame):
         nonlocal stop_requested
         stop_requested = True
+        logger.info("SIGTERM received. Stopping streaming query.")
 
     signal.signal(signal.SIGTERM, handle_sigterm)
 
@@ -289,12 +290,17 @@ def main() -> None:
             args.deadletter_topic,
         )
         queries = [query, deadletter_query]
-        while all(q.isActive for q in queries):
-            for q in queries:
-                q.awaitTermination(timeout=5)
+        while not stop_requested and all(active_query.isActive for active_query in queries):
+            for active_query in queries:
+                active_query.awaitTermination(timeout=5)
+                if stop_requested:
+                    break
             if stop_requested:
-                logger.info("SIGTERM received; stopping streams gracefully.")
                 break
+            progress = query.lastProgress
+            if progress:
+                logger.info("Streaming progress: %s", json.dumps(progress))
+                append_progress(args.progress_log, progress, logger)
     except KeyboardInterrupt:
         logger.info("Stopping streaming query.")
     finally:
