@@ -48,6 +48,11 @@ def parse_args() -> argparse.Namespace:
         default="latest",
         help="Kafka starting offsets (earliest/latest).",
     )
+    parser.add_argument(
+        "--progress_log",
+        default=None,
+        help="Optional path to append streaming progress JSON lines.",
+    )
     return parser.parse_args()
 
 
@@ -86,6 +91,20 @@ def kafka_packages(spark_version: str) -> str:
         f"org.apache.spark:spark-sql-kafka-0-10_2.12:{spark_version},"
         f"org.apache.spark:spark-token-provider-kafka-0-10_2.12:{spark_version}"
     )
+
+
+def append_progress(path: str, progress: dict, logger) -> None:
+    """Append streaming progress JSON to a log file."""
+    if not path:
+        return
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(progress) + "\n")
+    except Exception as exc:
+        logger.warning("Failed to append progress log: %s", exc)
 
 
 def main() -> None:
@@ -212,8 +231,9 @@ def main() -> None:
         )
 
         output_kafka = output_df.select(
-            F.to_json(F.struct(*[F.col(col_name) for col_name in output_df.columns]))
-            .alias("value")
+            F.to_json(
+                F.struct(*[F.col(col_name) for col_name in output_df.columns])
+            ).alias("value")
         )
 
         query = (
@@ -264,6 +284,7 @@ def main() -> None:
             progress = query.lastProgress
             if progress:
                 logger.info("Streaming progress: %s", json.dumps(progress))
+                append_progress(args.progress_log, progress, logger)
     except KeyboardInterrupt:
         logger.info("Stopping streaming query.")
     finally:

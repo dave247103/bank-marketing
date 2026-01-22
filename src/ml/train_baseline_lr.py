@@ -32,9 +32,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     spark = (
-        SparkSession.builder.appName("bank-train-lr")
-        .master("local[*]")
-        .getOrCreate()
+        SparkSession.builder.appName("bank-train-lr").master("local[*]").getOrCreate()
     )
     try:
         df = spark.read.parquet(args.input)
@@ -72,10 +70,16 @@ def main() -> None:
         accuracy = (tp + tn) / total if total else 0.0
         precision = tp / (tp + fp) if (tp + fp) else 0.0
         recall = tp / (tp + fn) if (tp + fn) else 0.0
-        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+        f1 = (
+            (2 * precision * recall / (precision + recall))
+            if (precision + recall)
+            else 0.0
+        )
 
         auc = BinaryClassificationEvaluator(
-            labelCol="label", rawPredictionCol="rawPrediction", metricName="areaUnderROC"
+            labelCol="label",
+            rawPredictionCol="rawPrediction",
+            metricName="areaUnderROC",
         ).evaluate(preds)
 
         print(f"Train rows: {train_df.count()}")

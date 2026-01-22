@@ -68,16 +68,12 @@ def validate(df) -> None:
 
 def main() -> None:
     args = parse_args()
-    spark = (
-        SparkSession.builder.appName("bank-etl")
-        .master("local[*]")
-        .getOrCreate()
-    )
+    spark = SparkSession.builder.appName("bank-etl").master("local[*]").getOrCreate()
     try:
         schema = build_schema()
         df = (
             spark.read.option("sep", ";")
-            .option("quote", "\"")
+            .option("quote", '"')
             .option("header", True)
             .schema(schema)
             .csv(args.input)

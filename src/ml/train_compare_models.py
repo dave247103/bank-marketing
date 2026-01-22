@@ -52,16 +52,24 @@ def compute_metrics(preds, pos_index: int):
     agg_row = (
         preds.select(
             F.sum(
-                F.when((label_col == pos_index) & (pred_col == pos_index), 1).otherwise(0)
+                F.when((label_col == pos_index) & (pred_col == pos_index), 1).otherwise(
+                    0
+                )
             ).alias("tp"),
             F.sum(
-                F.when((label_col != pos_index) & (pred_col == pos_index), 1).otherwise(0)
+                F.when((label_col != pos_index) & (pred_col == pos_index), 1).otherwise(
+                    0
+                )
             ).alias("fp"),
             F.sum(
-                F.when((label_col != pos_index) & (pred_col != pos_index), 1).otherwise(0)
+                F.when((label_col != pos_index) & (pred_col != pos_index), 1).otherwise(
+                    0
+                )
             ).alias("tn"),
             F.sum(
-                F.when((label_col == pos_index) & (pred_col != pos_index), 1).otherwise(0)
+                F.when((label_col == pos_index) & (pred_col != pos_index), 1).otherwise(
+                    0
+                )
             ).alias("fn"),
         )
         .collect()[0]
@@ -77,7 +85,9 @@ def compute_metrics(preds, pos_index: int):
     accuracy = (tp + tn) / total if total else 0.0
     precision = tp / (tp + fp) if (tp + fp) else 0.0
     recall = tp / (tp + fn) if (tp + fn) else 0.0
-    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    f1 = (
+        (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    )
 
     counts = {"tp": tp, "fp": fp, "tn": tn, "fn": fn}
     metrics = {
@@ -118,9 +128,7 @@ def train_and_evaluate(model, model_name: str, train_df, test_df, seed: int):
 
 
 def print_table(results):
-    header = (
-        "Model", "AUC", "F1", "Accuracy", "Precision", "Recall", "FitSeconds"
-    )
+    header = ("Model", "AUC", "F1", "Accuracy", "Precision", "Recall", "FitSeconds")
     widths = [12, 8, 8, 10, 10, 8, 12]
     fmt = "".join([f"{{:<{width}}}" for width in widths])
     print(fmt.format(*header))
