@@ -230,7 +230,9 @@ def main() -> None:
         preds = model.transform(good_df)
 
         probability_yes = vector_to_array("probability").getItem(pos_index)
-        prediction_label = label_array.getItem(F.col("prediction").cast("int"))
+        prediction_label = F.element_at(
+            label_array, F.col("prediction").cast("int") + F.lit(1)
+        )
         model_name = F.lit(os.path.basename(os.path.normpath(args.model)))
 
         output_df = preds.select(

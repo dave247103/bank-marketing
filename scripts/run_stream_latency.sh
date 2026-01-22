@@ -79,6 +79,7 @@ CHECKPOINT_ROOT="data/checkpoints/${TAG}"
 progress_path="report/stream_progress_${TAG}.jsonl"
 latency_path="report/stream_latency_${TAG}.json"
 summary_path="report/stream_summary_${TAG}.json"
+last_group_path="report/last_group_id_${TAG}.txt"
 progress_latest="report/stream_progress.jsonl"
 latency_latest="report/stream_latency.json"
 summary_latest="report/stream_summary.json"
@@ -133,6 +134,8 @@ if [[ "$ready" != "true" ]]; then
   echo "Kafka broker did not become ready in time." >&2
   exit 1
 fi
+echo "Broker ready. Stabilizing..."
+sleep 3
 
 create_topic() {
   local topic="$1"
@@ -144,6 +147,7 @@ create_topic "bank_raw"
 create_topic "bank_scored"
 create_topic "bank_deadletter"
 
+rm -rf data/checkpoints/bank_scored data/checkpoints/bank_deadletter
 rm -rf "$CHECKPOINT_ROOT"
 rm -f "$progress_path" "$latency_path" "$summary_path"
 rm -f "$progress_latest" "$latency_latest" "$summary_latest"
@@ -163,6 +167,8 @@ fi
 
 run_id="$(date +%Y%m%d%H%M%S)"
 group_id="bank-scored-consumer-${run_id}"
+echo "Consumer group_id: ${group_id}"
+echo "$group_id" > "$last_group_path"
 
 python src/streaming/consumer.py \
   --max_messages "$MAX_MESSAGES" \
