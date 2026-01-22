@@ -93,6 +93,8 @@ def main() -> None:
             for source in payload.get("sources", []) or []:
                 behind = source.get("maxOffsetsBehindLatest")
                 if behind is None:
+                    behind = (source.get("metrics") or {}).get("maxOffsetsBehindLatest")
+                if behind is None:
                     continue
                 try:
                     offsets_behind.append(float(behind))

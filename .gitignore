@@ -10,3 +10,4 @@ models/
 *.parquet
 *.orc
 *.log
+report/*.jsonl

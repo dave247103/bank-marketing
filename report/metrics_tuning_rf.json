@@ -1,0 +1,59 @@
+{
+  "baseline": {
+    "confusion_matrix": {
+      "fn": 977,
+      "fp": 23,
+      "tn": 7903,
+      "tp": 114
+    },
+    "fit_seconds": 22.319964780999726,
+    "label_mapping": {
+      "labels": [
+        "no",
+        "yes"
+      ],
+      "positive_label": "yes"
+    },
+    "metrics": {
+      "accuracy": 0.8890983697460353,
+      "auc": 0.885520637389899,
+      "f1": 0.18566775244299674,
+      "precision": 0.8321167883211679,
+      "recall": 0.10449129239230064
+    }
+  },
+  "model": "rf",
+  "model_out": "models/pipeline_tuned_rf",
+  "seed": 42,
+  "test_rows": 9017,
+  "train_ratio": 0.8,
+  "train_rows": 36194,
+  "tuned": {
+    "best_params": {
+      "featureSubsetStrategy": "sqrt",
+      "maxDepth": 10,
+      "numTrees": 100
+    },
+    "confusion_matrix": {
+      "fn": 891,
+      "fp": 57,
+      "tn": 7869,
+      "tp": 200
+    },
+    "fit_seconds": 167.83701813199968,
+    "label_mapping": {
+      "labels": [
+        "no",
+        "yes"
+      ],
+      "positive_label": "yes"
+    },
+    "metrics": {
+      "accuracy": 0.8948652545192415,
+      "auc": 0.9221584602578439,
+      "f1": 0.2967359050445104,
+      "precision": 0.7782101167315175,
+      "recall": 0.18331805682859761
+    }
+  }
+}

@@ -16,6 +16,16 @@ Expected outputs:
 - Parquet dataset: `data/processed/bank.parquet`
 - Saved model: `models/pipeline_lr`
 
+## Feature selection experiment (top-k)
+```bash
+source .venv/bin/activate
+python src/ml/feature_selection_experiment.py --input data/processed/bank.parquet --seed 42 --model gbt --top_k 30 --out_json report/feature_selection_experiment.json --out_csv report/feature_selection_topk.csv
+```
+
+Expected outputs:
+- Report: `report/feature_selection_experiment.json`
+- Selected features: `report/feature_selection_topk.csv`
+
 ## Streaming scoring (Kafka + Spark Structured Streaming)
 
 Start Kafka (Docker Compose):
@@ -39,11 +49,11 @@ docker exec -it kafka /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server 
 Then run each command in its own terminal:
 ```bash
 source .venv/bin/activate
-python src/streaming/producer.py --input data/processed/bank.parquet --broker localhost:9092 --topic bank_raw --rate 50 --repeat
+python src/streaming/producer.py --input data/processed/bank.parquet --broker localhost:9092 --topic bank_raw --rate 20 --repeat
 ```
 ```bash
 source .venv/bin/activate
-python src/streaming/scorer.py --model models/pipeline_lr --broker localhost:9092 --in_topic bank_raw --out_topic bank_scored --deadletter_topic bank_deadletter --checkpoint data/checkpoints
+python src/streaming/scorer.py --model models/pipeline_lr --broker localhost:9092 --in_topic bank_raw --out_topic bank_scored --deadletter_topic bank_deadletter --checkpoint data/checkpoints --progress_log report/stream_progress.jsonl
 ```
 ```bash
 source .venv/bin/activate
@@ -55,3 +65,12 @@ Streaming details:
 - Output topic: `bank_scored`
 - Dead-letter topic: `bank_deadletter`
 - Checkpoint root: `data/checkpoints`
+
+## Streaming progress summary
+```bash
+source .venv/bin/activate
+python src/streaming/summarize_progress.py --input report/stream_progress.jsonl --out_json report/stream_summary.json
+```
+
+Expected output:
+- Summary: `report/stream_summary.json`

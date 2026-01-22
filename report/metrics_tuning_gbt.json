@@ -1,0 +1,60 @@
+{
+  "baseline": {
+    "confusion_matrix": {
+      "fn": 685,
+      "fp": 198,
+      "tn": 7728,
+      "tp": 406
+    },
+    "fit_seconds": 38.86417094099943,
+    "label_mapping": {
+      "labels": [
+        "no",
+        "yes"
+      ],
+      "positive_label": "yes"
+    },
+    "metrics": {
+      "accuracy": 0.9020738604857491,
+      "auc": 0.9249181186284775,
+      "f1": 0.4790560471976401,
+      "precision": 0.6721854304635762,
+      "recall": 0.3721356553620532
+    }
+  },
+  "model": "gbt",
+  "model_out": "models/pipeline_tuned_gbt",
+  "seed": 42,
+  "test_rows": 9017,
+  "train_ratio": 0.8,
+  "train_rows": 36194,
+  "tuned": {
+    "best_params": {
+      "maxDepth": 5,
+      "maxIter": 40,
+      "stepSize": 0.1,
+      "subsamplingRate": 1.0
+    },
+    "confusion_matrix": {
+      "fn": 656,
+      "fp": 215,
+      "tn": 7711,
+      "tp": 435
+    },
+    "fit_seconds": 256.63493804100017,
+    "label_mapping": {
+      "labels": [
+        "no",
+        "yes"
+      ],
+      "positive_label": "yes"
+    },
+    "metrics": {
+      "accuracy": 0.9034046800487967,
+      "auc": 0.9309356853368451,
+      "f1": 0.4997128087306145,
+      "precision": 0.6692307692307692,
+      "recall": 0.3987167736021998
+    }
+  }
+}
