@@ -117,12 +117,12 @@ def main() -> None:
 
     stop_requested = False
 
-    def handle_sigterm(_signum, _frame):
+    def handle_stop(_signum, _frame):
         nonlocal stop_requested
         stop_requested = True
-        logger.info("SIGTERM received. Stopping streaming query.")
 
-    signal.signal(signal.SIGTERM, handle_sigterm)
+    signal.signal(signal.SIGTERM, handle_stop)
+    signal.signal(signal.SIGINT, handle_stop)
 
     if not os.path.exists(args.model):
         raise FileNotFoundError(f"Model path not found: {args.model}")
@@ -290,19 +290,19 @@ def main() -> None:
             args.deadletter_topic,
         )
         queries = [query, deadletter_query]
-        while not stop_requested and all(active_query.isActive for active_query in queries):
+        stop_logged = False
+        while all(active_query.isActive for active_query in queries):
             for active_query in queries:
                 active_query.awaitTermination(timeout=5)
-                if stop_requested:
-                    break
-            if stop_requested:
-                break
             progress = query.lastProgress
             if progress:
                 logger.info("Streaming progress: %s", json.dumps(progress))
                 append_progress(args.progress_log, progress, logger)
-    except KeyboardInterrupt:
-        logger.info("Stopping streaming query.")
+            if stop_requested:
+                if not stop_logged:
+                    logger.info("Stop requested. Stopping streaming queries.")
+                    stop_logged = True
+                break
     finally:
         for active_query in [query, deadletter_query]:
             if active_query is None:

@@ -14,23 +14,23 @@ Predict term deposit subscription (y=yes/no) with batch ML training and a real-t
 
 ## EDA
 - Summary write-up: report/eda.md
-- Figure: fireport/gures/label_distribution.png
+- Figure: report/figures/label_distribution.png
 
 ## 3-model comparison
-- Metrics artifact: metrics_models.json
-- Table: tables.md (Model comparison)
+- Metrics artifact: report/metrics_models.json
+- Table: report/tables.md (Model comparison)
 - Figure: report/figures/model_comparison.png
 
 ## Evaluation
-- Confusion matrices and classification metrics in metrics_models.json and metrics_tuning_*.json
+- Confusion matrices and classification metrics in report/metrics_models.json and report/metrics_tuning_*.json
 - Holdout split details are recorded in the metrics JSON files.
 
 ## Tuning
-- Tuning artifacts: metrics_tuning_gbt.json, metrics_tuning_rf.json
-- Table: tables.md (Tuning metrics and params)
+- Tuning artifacts: report/metrics_tuning_gbt.json, report/metrics_tuning_rf.json
+- Table: report/tables.md (Tuning metrics and params)
 
 ## Feature importance
-- CSV: feature_importance_gbt.csv
+- CSV: report/feature_importance_gbt.csv
 - Figure: report/figures/feature_importance_top20.png
 
 ## Streaming pipeline
@@ -40,10 +40,10 @@ Predict term deposit subscription (y=yes/no) with batch ML training and a real-t
 - Run script: scripts/run_stream_latency.sh
 
 ## Performance
-- Latency summary: stream_latency.json
-- Progress summary: stream_summary.json
+- Latency summary: report/stream_latency.json
+- Progress summary: report/stream_summary.json
 - Figure: report/figures/stream_latency_hist.png
-- Table: tables.md (Streaming latency)
+- Table: report/tables.md (Streaming latency)
 
 ## Conclusions
 - Summarize the best-performing model and any trade-offs.

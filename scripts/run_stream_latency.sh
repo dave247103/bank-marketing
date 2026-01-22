@@ -75,6 +75,7 @@ else
   TAG="$(sanitize_tag "$(basename "$MODEL")")"
 fi
 
+CHECKPOINT_ROOT="data/checkpoints/${TAG}"
 progress_path="report/stream_progress_${TAG}.jsonl"
 latency_path="report/stream_latency_${TAG}.json"
 summary_path="report/stream_summary_${TAG}.json"
@@ -143,12 +144,12 @@ create_topic "bank_raw"
 create_topic "bank_scored"
 create_topic "bank_deadletter"
 
-rm -rf data/checkpoints
+rm -rf "$CHECKPOINT_ROOT"
 rm -f "$progress_path" "$latency_path" "$summary_path"
 rm -f "$progress_latest" "$latency_latest" "$summary_latest"
 
 echo "Starting scorer..."
-python src/streaming/scorer.py --starting_offsets latest --progress_log "$progress_path" --model "$MODEL" &
+python src/streaming/scorer.py --starting_offsets latest --progress_log "$progress_path" --model "$MODEL" --checkpoint "$CHECKPOINT_ROOT" &
 scorer_pid=$!
 
 echo "Starting producer..."

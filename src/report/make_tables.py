@@ -166,7 +166,9 @@ def streaming_latency_table(latency_glob: str):
     ]
     rows = []
     for path in sorted(glob(latency_glob)):
-        data = load_json(path) or {}
+        data = load_json(path)
+        if not data:
+            continue
         rows.append(
             [
                 latency_run_label(path),
