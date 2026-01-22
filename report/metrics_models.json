@@ -7,7 +7,7 @@
         "tn": 7746,
         "tp": 396
       },
-      "fit_seconds": 24.4551226450003,
+      "fit_seconds": 24.375737880000088,
       "label_mapping": {
         "labels": [
           "no",
@@ -32,7 +32,7 @@
         "tn": 7903,
         "tp": 114
       },
-      "fit_seconds": 13.849969042000339,
+      "fit_seconds": 9.759414160998858,
       "label_mapping": {
         "labels": [
           "no",
@@ -57,7 +57,7 @@
         "tn": 7728,
         "tp": 406
       },
-      "fit_seconds": 24.328674989999854,
+      "fit_seconds": 18.961713007996877,
       "label_mapping": {
         "labels": [
           "no",

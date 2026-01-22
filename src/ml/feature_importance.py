@@ -42,7 +42,7 @@ def extract_feature_names(transformed_df, total_features: int):
     field = transformed_df.schema["features"]
     md = field.metadata or {}
     ml_attr = md.get("ml_attr") or {}
-    attrs = (ml_attr.get("attrs") or {})
+    attrs = ml_attr.get("attrs") or {}
 
     names = [None] * total_features
 

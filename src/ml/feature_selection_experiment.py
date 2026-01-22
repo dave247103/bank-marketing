@@ -190,9 +190,9 @@ def main() -> None:
         if len(feature_names) != total_features:
             raise ValueError("Feature name count does not match importances length.")
 
-        ranked = sorted(
-            enumerate(importances), key=lambda pair: pair[1], reverse=True
-        )[: args.top_k]
+        ranked = sorted(enumerate(importances), key=lambda pair: pair[1], reverse=True)[
+            : args.top_k
+        ]
         selected_indices = [idx for idx, _ in ranked]
 
         slicer = VectorSlicer(
@@ -217,9 +217,7 @@ def main() -> None:
             writer = csv.writer(handle)
             writer.writerow(["rank", "feature", "importance"])
             for idx, (feature_idx, importance) in enumerate(ranked, start=1):
-                writer.writerow(
-                    [idx, feature_names[feature_idx], float(importance)]
-                )
+                writer.writerow([idx, feature_names[feature_idx], float(importance)])
 
         selected_features = []
         for rank, (feature_idx, importance) in enumerate(ranked, start=1):

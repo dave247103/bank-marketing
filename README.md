@@ -1,76 +1,57 @@
-# UCI Bank Marketing - Milestones 1-2
+# Bank Marketing — Spark MLlib + Kafka (Binary Classification)
 
-## Run ETL (CSV -> Parquet)
+Predict term deposit subscription (y=yes/no) using batch ML (Spark MLlib) and real-time scoring (Spark Structured Streaming + Kafka).
+
+See `AGENTS.md` for the canonical, reproducible command list.
+
+## Requirements
+- Python + venv
+- Docker + Docker Compose
+
+## Setup
 ```bash
 source .venv/bin/activate
+pip install -r requirements.txt
+docker compose up -d
+```
+
+## Batch pipeline
+```bash
 python src/etl/etl_bank.py --input data/raw/bank-full.csv --output data/processed/bank.parquet
+
+python src/ml/train_compare_models.py --input data/processed/bank.parquet --seed 42 --report_out report/metrics_models.json --model_dir models
+python src/ml/tune_model.py --input data/processed/bank.parquet --model gbt --out_model models/pipeline_tuned_gbt --report_out report/metrics_tuning_gbt.json
+python src/ml/tune_model.py --input data/processed/bank.parquet --model rf  --out_model models/pipeline_tuned_rf  --report_out report/metrics_tuning_rf.json
 ```
 
-## Train baseline Logistic Regression
+## Streaming scoring demo (Kafka + Spark Structured Streaming)
+Topics:
+- input: `bank_raw`
+- output: `bank_scored`
+- dead-letter: `bank_deadletter`
+
+Run in three terminals:
 ```bash
-source .venv/bin/activate
-python src/ml/train_baseline_lr.py --input data/processed/bank.parquet --model_out models/pipeline_lr --seed 42
-```
-
-Expected outputs:
-- Parquet dataset: `data/processed/bank.parquet`
-- Saved model: `models/pipeline_lr`
-
-## Feature selection experiment (top-k)
-```bash
-source .venv/bin/activate
-python src/ml/feature_selection_experiment.py --input data/processed/bank.parquet --seed 42 --model gbt --top_k 30 --out_json report/feature_selection_experiment.json --out_csv report/feature_selection_topk.csv
-```
-
-Expected outputs:
-- Report: `report/feature_selection_experiment.json`
-- Selected features: `report/feature_selection_topk.csv`
-
-## Streaming scoring (Kafka + Spark Structured Streaming)
-
-Start Kafka (Docker Compose):
-```bash
-docker compose up -d
-```
-
-Optional clean reset (clears old topic messages):
-```bash
-docker compose down -v
-docker compose up -d
-```
-
-Optional: create topics explicitly (useful if auto-create is disabled):
-```bash
-docker exec -it kafka /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic bank_raw --partitions 3 --replication-factor 1
-docker exec -it kafka /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic bank_scored --partitions 3 --replication-factor 1
-docker exec -it kafka /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic bank_deadletter --partitions 3 --replication-factor 1
-```
-
-Then run each command in its own terminal:
-```bash
-source .venv/bin/activate
+rm -rf data/checkpoints
 python src/streaming/producer.py --input data/processed/bank.parquet --broker localhost:9092 --topic bank_raw --rate 20 --repeat
 ```
 ```bash
-source .venv/bin/activate
-python src/streaming/scorer.py --model models/pipeline_lr --broker localhost:9092 --in_topic bank_raw --out_topic bank_scored --deadletter_topic bank_deadletter --checkpoint data/checkpoints --progress_log report/stream_progress.jsonl
+python src/streaming/scorer.py --model models/pipeline_lr --broker localhost:9092 --in_topic bank_raw --out_topic bank_scored --deadletter_topic bank_deadletter --checkpoint data/checkpoints --starting_offsets earliest --progress_log report/stream_progress.jsonl
 ```
 ```bash
-source .venv/bin/activate
-python src/streaming/consumer.py --broker localhost:9092 --topic bank_scored
+python src/streaming/consumer.py --broker localhost:9092 --topic bank_scored --from_beginning --latency_out report/stream_latency.json
 ```
 
-Streaming details:
-- Input topic: `bank_raw`
-- Output topic: `bank_scored`
-- Dead-letter topic: `bank_deadletter`
-- Checkpoint root: `data/checkpoints`
-
-## Streaming progress summary
+## Streaming performance artifacts
 ```bash
-source .venv/bin/activate
 python src/streaming/summarize_progress.py --input report/stream_progress.jsonl --out_json report/stream_summary.json
 ```
 
-Expected output:
-- Summary: `report/stream_summary.json`
+## Figures for report/presentation
+```bash
+python src/report/make_figures.py --out_dir report/figures
+```
+
+## Kafka UI
+If enabled in `docker-compose.yml`, open Kafka UI on:
+- http://localhost:8080

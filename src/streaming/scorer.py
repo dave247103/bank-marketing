@@ -130,6 +130,7 @@ def main() -> None:
         .getOrCreate()
     )
     try:
+        spark.conf.set("spark.sql.session.timeZone", "UTC")
         schema = build_schema()
         model = PipelineModel.load(args.model)
 
@@ -186,9 +187,9 @@ def main() -> None:
         )
 
         scored_at_col = F.date_format(
-            F.to_utc_timestamp(F.current_timestamp(), "UTC"),
-            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            F.current_timestamp(), "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
         )
+
         parsed_df = parsed_df.withColumn("scored_at", scored_at_col)
         parsed_df = parsed_df.withColumn(
             "event_time", F.coalesce(F.col("event_time"), F.col("scored_at"))
