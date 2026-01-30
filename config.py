@@ -1,6 +1,36 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+TARGET_COL = "y"
+
+NUMERIC_COLS = [
+    "age",
+    "balance",
+    "day",
+    "duration",
+    "campaign",
+    "pdays",
+    "previous",
+]
+
+CATEGORICAL_COLS = [
+    "job",
+    "marital",
+    "education",
+    "default",
+    "housing",
+    "loan",
+    "contact",
+    "month",
+    "poutcome",
+]
+
+ALL_COLS = NUMERIC_COLS + CATEGORICAL_COLS + [TARGET_COL]
+
+CAP_VALUE = 34
+DEFAULT_SEED = 42
+
+
 @dataclass(frozen=True)
 class Config:
     input_csv: str = "data/bank-full.csv"
