@@ -8,6 +8,7 @@ from pathlib import Path
 from pyspark.ml import PipelineModel
 from pyspark.sql import functions as F
 from pyspark.sql import SparkSession
+from pyspark.ml.functions import vector_to_array
 
 from preprocess import clean_df, get_csv_schema
 
@@ -101,15 +102,17 @@ def main() -> None:
     preds = model.transform(features_df)
 
     preds = preds.withColumn("predicted_label", F.col("prediction").cast("int"))
-    prob_values = F.col("probability").getField("values")
-    prob_indices = F.col("probability").getField("indices")
-    p1_sparse = F.coalesce(
-        F.element_at(F.map_from_arrays(prob_indices, prob_values), F.lit(1)), F.lit(0.0)
-    )
-    p1_dense = F.coalesce(F.element_at(prob_values, F.lit(2)), F.lit(0.0))
-    preds = preds.withColumn(
-        "p1", F.when((prob_indices.isNull()) | (F.size(prob_indices) == 0), p1_dense).otherwise(p1_sparse)
-    )
+    # prob_values = F.col("probability").getField("values")
+    # prob_indices = F.col("probability").getField("indices")
+    # p1_sparse = F.coalesce(
+    #     F.element_at(F.map_from_arrays(prob_indices, prob_values), F.lit(1)), F.lit(0.0)
+    # )
+    # p1_dense = F.coalesce(F.element_at(prob_values, F.lit(2)), F.lit(0.0))
+    # preds = preds.withColumn(
+    #     "p1", F.when((prob_indices.isNull()) | (F.size(prob_indices) == 0), p1_dense).otherwise(p1_sparse)
+    # )
+    p_arr = vector_to_array(F.col("probability"))  # works for sparse + dense
+    preds = preds.withColumn("p1", F.coalesce(p_arr.getItem(1).cast("double"), F.lit(0.0)))
 
     print(f"probability dtype: {preds.schema['probability'].dataType}")
 
