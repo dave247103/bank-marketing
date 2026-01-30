@@ -8,7 +8,12 @@ from pathlib import Path
 from pyspark.ml import PipelineModel
 from pyspark.sql import functions as F
 from pyspark.sql import SparkSession
-from pyspark.ml.functions import vector_to_array
+from pyspark.sql.types import ArrayType, DoubleType
+
+try:
+    from pyspark.ml.functions import vector_to_array
+except Exception:
+    vector_to_array = None
 
 from preprocess import clean_df, get_csv_schema
 
@@ -59,6 +64,21 @@ def load_metadata(artifacts_dir: str) -> dict | None:
         return json.load(f)
 
 
+def vector_to_list(v):
+    if v is None:
+        return None
+    return v.toArray().tolist()
+
+
+def add_p1_column(df):
+    if vector_to_array is not None:
+        p_arr = vector_to_array(F.col("probability"))
+    else:
+        vec_udf = F.udf(vector_to_list, ArrayType(DoubleType()))
+        p_arr = vec_udf(F.col("probability"))
+    return df.withColumn("p1", F.coalesce(p_arr.getItem(1).cast("double"), F.lit(0.0)))
+
+
 def main() -> None:
     args = parse_args()
     artifacts_dir = Path(args.artifacts_dir)
@@ -67,15 +87,13 @@ def main() -> None:
         raise FileNotFoundError(f"PipelineModel not found: {model_path}")
 
     metadata = load_metadata(str(artifacts_dir))
-    keep_duration = None
-    pdays_features = None
+    keep_duration = False
+    pdays_features = "both"
     if metadata is not None:
         keep_duration = bool(metadata.get("keep_duration", False))
-        pdays_features = metadata.get("pdays_features")
+        pdays_features = metadata.get("pdays_features", "both")
     elif args.keep_duration is not None:
         keep_duration = bool(args.keep_duration)
-    else:
-        keep_duration = False
 
     Path(args.checkpoint_dir).mkdir(parents=True, exist_ok=True)
 
@@ -97,24 +115,16 @@ def main() -> None:
     parsed = parsed.withColumn("ingest_ts", F.current_timestamp())
 
     features_df = clean_df(parsed, keep_duration=keep_duration, include_label=False)
+    if pdays_features == "drop_pdays_clean":
+        features_df = features_df.drop("pdays_clean")
+    elif pdays_features == "drop_prev_contacted":
+        features_df = features_df.drop("prev_contacted")
 
     model = PipelineModel.load(str(model_path))
     preds = model.transform(features_df)
 
     preds = preds.withColumn("predicted_label", F.col("prediction").cast("int"))
-    # prob_values = F.col("probability").getField("values")
-    # prob_indices = F.col("probability").getField("indices")
-    # p1_sparse = F.coalesce(
-    #     F.element_at(F.map_from_arrays(prob_indices, prob_values), F.lit(1)), F.lit(0.0)
-    # )
-    # p1_dense = F.coalesce(F.element_at(prob_values, F.lit(2)), F.lit(0.0))
-    # preds = preds.withColumn(
-    #     "p1", F.when((prob_indices.isNull()) | (F.size(prob_indices) == 0), p1_dense).otherwise(p1_sparse)
-    # )
-    p_arr = vector_to_array(F.col("probability"))  # works for sparse + dense
-    preds = preds.withColumn("p1", F.coalesce(p_arr.getItem(1).cast("double"), F.lit(0.0)))
-
-    print(f"probability dtype: {preds.schema['probability'].dataType}")
+    preds = add_p1_column(preds)
 
     output_cols = [
         "age",
@@ -162,8 +172,14 @@ def main() -> None:
             if progress:
                 duration = progress.get("durationMs", {}).get("addBatch")
                 num_in = progress.get("numInputRows")
-                if duration is not None:
-                    print(f"batch_ms={duration} input_rows={num_in}")
+                proc_rps = progress.get("processedRowsPerSecond")
+                in_rps = progress.get("inputRowsPerSecond")
+                batch_id = progress.get("batchId")
+                print(
+                    "batch_id={} input_rows={} input_rps={} proc_rps={} batch_ms={}".format(
+                        batch_id, num_in, in_rps, proc_rps, duration
+                    )
+                )
             time.sleep(args.log_interval)
     except KeyboardInterrupt:
         print("Stopping stream...")
