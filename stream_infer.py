@@ -37,6 +37,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint-dir", default="artifacts/checkpoints/bank_stream", help="Checkpoint directory"
     )
+    parser.add_argument(
+        "--starting-offsets",
+        choices=["latest", "earliest"],
+        default="latest",
+        help="Kafka startingOffsets (default: latest)",
+    )
     parser.add_argument("--log-interval", type=int, default=10, help="Progress log interval (sec)")
 
     def str2bool(v: str) -> bool:
@@ -107,7 +113,8 @@ def main() -> None:
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", args.bootstrap)
         .option("subscribe", args.input_topic)
-        .option("startingOffsets", "latest")
+        .option("startingOffsets", args.starting_offsets)
+        .option("failOnDataLoss", "false")
         .load()
     )
 
