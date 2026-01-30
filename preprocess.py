@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
@@ -87,7 +87,7 @@ def clean_df(df: DataFrame, keep_duration: bool, include_label: bool = True) -> 
     return df
 
 
-def get_feature_columns(keep_duration: bool) -> Tuple[List[str], List[str]]:
+def get_feature_columns(keep_duration: bool, pdays_features: str = "both") -> Tuple[List[str], List[str]]:
     num_cols = [
         "age",
         "balance",
@@ -97,6 +97,10 @@ def get_feature_columns(keep_duration: bool) -> Tuple[List[str], List[str]]:
         "pdays_clean",
         "prev_contacted",
     ]
+    if pdays_features == "drop_pdays_clean":
+        num_cols = [c for c in num_cols if c != "pdays_clean"]
+    elif pdays_features == "drop_prev_contacted":
+        num_cols = [c for c in num_cols if c != "prev_contacted"]
     if keep_duration:
         num_cols.append("duration")
     return CATEGORICAL_COLS, num_cols
@@ -146,7 +150,7 @@ def save_dataset_summary(df: DataFrame, report_dir: str, keep_duration: bool) ->
                 "rows": rows,
                 "cols": cols,
                 "keep_duration": bool(keep_duration),
-                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
             }
         ]
     )
@@ -221,6 +225,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Bank marketing EDA + preprocessing")
     parser.add_argument("--input", default="data/bank-full.csv", help="Input CSV path")
     parser.add_argument("--report-dir", default="report", help="Report output directory")
+    parser.add_argument(
+        "--pdays-features",
+        choices=["both", "drop_pdays_clean", "drop_prev_contacted"],
+        default="both",
+        help="Choose pdays feature set",
+    )
 
     def str2bool(v: str) -> bool:
         val = str(v).lower()
@@ -259,13 +269,13 @@ def main() -> None:
         hist_cols.append("duration")
     plot_histograms(df, args.report_dir, hist_cols)
 
-    _, num_cols = get_feature_columns(args.keep_duration)
+    _, num_cols = get_feature_columns(args.keep_duration, args.pdays_features)
     corr_cols = num_cols + ["label"]
     plot_corr_heatmap(df, args.report_dir, corr_cols)
 
     rows = df.count()
     print(
-        f"Saved report artifacts to {args.report_dir} | rows={rows} cols={len(df.columns)} keep_duration={args.keep_duration}"
+        f"Saved report artifacts to {args.report_dir} | rows={rows} cols={len(df.columns)} keep_duration={args.keep_duration} pdays_features={args.pdays_features}"
     )
 
     spark.stop()

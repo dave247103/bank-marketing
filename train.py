@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 
 from pyspark.ml import Pipeline
-from pyspark.ml.attribute import AttributeGroup
 from pyspark.ml.classification import (
     DecisionTreeClassificationModel,
     GBTClassificationModel,
@@ -17,7 +16,7 @@ from pyspark.ml.classification import (
     RandomForestClassificationModel,
     RandomForestClassifier,
 )
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import BinaryClassificationEvaluator, MulticlassClassificationEvaluator
 from pyspark.ml.feature import OneHotEncoder, StandardScaler, StringIndexer, VectorAssembler
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 from pyspark.mllib.evaluation import MulticlassMetrics
@@ -95,23 +94,6 @@ def plot_confusion_matrix(pred_df: DataFrame, report_dir: str) -> None:
     save_fig(Path(report_dir) / "confusion_matrix.png")
 
 
-def get_feature_names(pipeline_model, df: DataFrame) -> List[str]:
-    try:
-        sample = pipeline_model.transform(df.limit(1))
-        attrs = AttributeGroup.fromStructField(sample.schema["features"]).attributes
-        if attrs:
-            names = [a.name or f"f{i}" for i, a in enumerate(attrs)]
-            return names
-    except Exception:
-        pass
-
-    model = pipeline_model.stages[-1]
-    num_features = getattr(model, "numFeatures", None)
-    if num_features is None:
-        return []
-    return [f"f{i}" for i in range(num_features)]
-
-
 def plot_feature_importance(pipeline_model, df: DataFrame, report_dir: str) -> bool:
     import pandas as pd
     import matplotlib.pyplot as plt
@@ -126,11 +108,7 @@ def plot_feature_importance(pipeline_model, df: DataFrame, report_dir: str) -> b
         ),
     ):
         importances = model.featureImportances.toArray()
-        names = get_feature_names(pipeline_model, df)
-        if names and len(names) == len(importances):
-            labels = names
-        else:
-            labels = [f"f{i}" for i in range(len(importances))]
+        labels = [f"f{i}" for i in range(len(importances))]
 
         pdf = (
             pd.DataFrame({"feature": labels, "importance": importances})
@@ -159,6 +137,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--artifacts-dir", default="artifacts", help="Artifacts output directory")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="Random seed")
     parser.add_argument("--train-frac", type=float, default=0.8, help="Training fraction")
+    parser.add_argument(
+        "--pdays-features",
+        choices=["both", "drop_pdays_clean", "drop_prev_contacted"],
+        default="both",
+        help="Choose pdays feature set",
+    )
 
     def str2bool(v: str) -> bool:
         val = str(v).lower()
@@ -193,7 +177,7 @@ def main() -> None:
     df = clean_df(df_raw, keep_duration=args.keep_duration, include_label=True)
     df = df.withColumn("row_id", F.monotonically_increasing_id())
 
-    cat_cols, num_cols = get_feature_columns(args.keep_duration)
+    cat_cols, num_cols = get_feature_columns(args.keep_duration, args.pdays_features)
 
     fractions = {0: args.train_frac, 1: args.train_frac}
     train = df.sampleBy("label", fractions=fractions, seed=args.seed).cache()
@@ -224,8 +208,8 @@ def main() -> None:
         results.append({"name": name, "tuned": False, "metrics": metrics, "model": fitted})
         print(f"Baseline {name}: f1={metrics['f1']:.4f} auc={metrics['auc']:.4f}")
 
-    evaluator = BinaryClassificationEvaluator(
-        rawPredictionCol="rawPrediction", labelCol="label", metricName="areaUnderROC"
+    cv_evaluator = MulticlassClassificationEvaluator(
+        labelCol="label", predictionCol="prediction", metricName="f1"
     )
 
     tuned_specs = []
@@ -244,7 +228,7 @@ def main() -> None:
         cv = CrossValidator(
             estimator=pipeline,
             estimatorParamMaps=grid,
-            evaluator=evaluator,
+            evaluator=cv_evaluator,
             numFolds=3,
             parallelism=2,
             seed=args.seed,
@@ -289,9 +273,11 @@ def main() -> None:
         "tuned": best_result["tuned"],
         "metrics": best_result["metrics"],
         "keep_duration": bool(args.keep_duration),
+        "pdays_features": args.pdays_features,
+        "train_frac": args.train_frac,
         "categorical_cols": cat_cols,
         "numeric_cols": num_cols,
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
     }
     with open(Path(args.artifacts_dir) / "metadata.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)

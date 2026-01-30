@@ -1,0 +1,34 @@
+{
+  "chosen_model": "GBT",
+  "tuned": false,
+  "metrics": {
+    "accuracy": 0.8941998447377176,
+    "precision": 0.6088082901554405,
+    "recall": 0.22639691714836224,
+    "f1": 0.3300561797752809,
+    "auc": 0.7999872497676345
+  },
+  "keep_duration": false,
+  "pdays_features": "drop_pdays_clean",
+  "train_frac": 0.8,
+  "categorical_cols": [
+    "job",
+    "marital",
+    "education",
+    "default",
+    "housing",
+    "loan",
+    "contact",
+    "month",
+    "poutcome"
+  ],
+  "numeric_cols": [
+    "age",
+    "balance",
+    "day",
+    "campaign",
+    "previous",
+    "prev_contacted"
+  ],
+  "generated_at": "2026-01-30T10:13:14.734430+00:00"
+}

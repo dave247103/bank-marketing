@@ -8,3 +8,6 @@ models/
 *.parquet
 *.orc
 *.log
+.DS_Store
+.env
+artifacts/pipeline_model/

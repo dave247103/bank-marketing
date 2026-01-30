@@ -67,12 +67,16 @@ def main() -> None:
 
     metadata = load_metadata(str(artifacts_dir))
     keep_duration = None
+    pdays_features = None
     if metadata is not None:
         keep_duration = bool(metadata.get("keep_duration", False))
+        pdays_features = metadata.get("pdays_features")
     elif args.keep_duration is not None:
         keep_duration = bool(args.keep_duration)
     else:
         keep_duration = False
+
+    Path(args.checkpoint_dir).mkdir(parents=True, exist_ok=True)
 
     spark = SparkSession.builder.appName("bank-stream-infer").getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
@@ -136,7 +140,7 @@ def main() -> None:
     )
 
     print(
-        f"Streaming from {args.input_topic} to {args.output_topic} | keep_duration={keep_duration} | model={model_path}"
+        f"Streaming from {args.input_topic} to {args.output_topic} | keep_duration={keep_duration} | pdays_features={pdays_features} | model={model_path}"
     )
 
     try:
