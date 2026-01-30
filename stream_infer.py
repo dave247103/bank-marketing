@@ -101,7 +101,17 @@ def main() -> None:
     preds = model.transform(features_df)
 
     preds = preds.withColumn("predicted_label", F.col("prediction").cast("int"))
-    preds = preds.withColumn("p1", F.col("probability").getItem(1))
+    prob_values = F.col("probability").getField("values")
+    prob_indices = F.col("probability").getField("indices")
+    p1_sparse = F.coalesce(
+        F.element_at(F.map_from_arrays(prob_indices, prob_values), F.lit(1)), F.lit(0.0)
+    )
+    p1_dense = F.coalesce(F.element_at(prob_values, F.lit(2)), F.lit(0.0))
+    preds = preds.withColumn(
+        "p1", F.when((prob_indices.isNull()) | (F.size(prob_indices) == 0), p1_dense).otherwise(p1_sparse)
+    )
+
+    print(f"probability dtype: {preds.schema['probability'].dataType}")
 
     output_cols = [
         "age",
