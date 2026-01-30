@@ -2,14 +2,14 @@
   "chosen_model": "GBT",
   "tuned": false,
   "metrics": {
-    "accuracy": 0.9042918930908285,
-    "precision": 0.6200274348422496,
-    "recall": 0.43545279383429675,
-    "f1": 0.511601584606678,
-    "auc": 0.9271362857365706
+    "accuracy": 0.8191194410557835,
+    "precision": 0.3423710792131845,
+    "recall": 0.6204238921001927,
+    "f1": 0.4412470023980815,
+    "auc": 0.7950514247298006
   },
-  "keep_duration": true,
-  "pdays_features": "both",
+  "keep_duration": false,
+  "pdays_features": "drop_pdays_clean",
   "train_frac": 0.8,
   "categorical_cols": [
     "job",
@@ -28,9 +28,7 @@
     "day",
     "campaign",
     "previous",
-    "pdays_clean",
-    "prev_contacted",
-    "duration"
+    "prev_contacted"
   ],
-  "generated_at": "2026-01-30T11:22:35.068431+00:00"
+  "generated_at": "2026-01-30T12:50:55.915295+00:00"
 }

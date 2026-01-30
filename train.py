@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Dict, List
 
 from pyspark.ml import Pipeline
+try:
+    from pyspark.ml.attribute import AttributeGroup
+except ModuleNotFoundError:  # pyspark may not expose AttributeGroup
+    AttributeGroup = None
 from pyspark.ml.classification import (
     DecisionTreeClassificationModel,
     GBTClassificationModel,
@@ -86,15 +90,133 @@ def plot_confusion_matrix(pred_df: DataFrame, report_dir: str) -> None:
     plt.figure(figsize=(4, 3))
     plt.imshow(cm, cmap="Blues")
     plt.title("Confusion Matrix")
-    plt.xticks([0, 1], ["pred 0", "pred 1"])
-    plt.yticks([0, 1], ["label 0", "label 1"])
+    plt.xticks([0, 1], ["no", "yes"])
+    plt.yticks([0, 1], ["no", "yes"])
     for i in range(2):
         for j in range(2):
             plt.text(j, i, cm[i][j], ha="center", va="center", color="black")
     save_fig(Path(report_dir) / "confusion_matrix.png")
 
 
-def plot_feature_importance(pipeline_model, df: DataFrame, report_dir: str) -> bool:
+def _get_vector_size(schema, col: str) -> int | None:
+    field = schema[col]
+    if AttributeGroup is not None:
+        group = AttributeGroup.fromStructField(field)
+        if group.size is not None:
+            return int(group.size)
+        if group.attributes is not None:
+            return len(group.attributes)
+        return None
+
+    meta = field.metadata.get("ml_attr", {})
+    if "num_attrs" in meta:
+        return int(meta["num_attrs"])
+    attrs = meta.get("attrs")
+    if not attrs:
+        return None
+    max_idx = -1
+    for group in attrs.values():
+        for attr in group:
+            idx = attr.get("idx")
+            if idx is not None:
+                max_idx = max(max_idx, idx)
+    return max_idx + 1 if max_idx >= 0 else None
+
+
+def _get_attr_names_from_metadata(field) -> List[str] | None:
+    meta = field.metadata.get("ml_attr", {})
+    attrs = meta.get("attrs")
+    if not attrs:
+        return None
+    idx_to_name: Dict[int, str | None] = {}
+    max_idx = -1
+    for group in attrs.values():
+        for attr in group:
+            idx = attr.get("idx")
+            if idx is None:
+                continue
+            idx_to_name[idx] = attr.get("name")
+            max_idx = max(max_idx, idx)
+    if max_idx < 0:
+        return None
+    return [idx_to_name.get(i) for i in range(max_idx + 1)]
+
+
+def _get_feature_names_from_metadata(
+    transformed_df: DataFrame, features_col: str, num_features: int
+) -> List[str]:
+    field = transformed_df.schema[features_col]
+    names: List[str] = []
+    if AttributeGroup is not None:
+        group = AttributeGroup.fromStructField(field)
+        attrs = group.attributes
+        if attrs:
+            for i, attr in enumerate(attrs):
+                name = attr.name if attr and attr.name else f"f{i}"
+                names.append(name)
+    else:
+        attrs = _get_attr_names_from_metadata(field)
+        if attrs:
+            for i, name in enumerate(attrs):
+                names.append(name or f"f{i}")
+    if not names:
+        names = [f"f{i}" for i in range(num_features)]
+    if len(names) < num_features:
+        names.extend([f"f{i}" for i in range(len(names), num_features)])
+    return names[:num_features]
+
+
+def _build_base_feature_names(
+    transformed_df: DataFrame,
+    pipeline_model,
+    cat_cols: List[str],
+    num_cols: List[str],
+    num_features: int,
+) -> List[str]:
+    assembler = next(
+        (stage for stage in pipeline_model.stages if isinstance(stage, VectorAssembler) and stage.getOutputCol() == "features"),
+        None,
+    )
+    if assembler is None:
+        return [f"f{i}" for i in range(num_features)]
+
+    base_names: List[str] = []
+    for col in assembler.getInputCols():
+        if col == "num_scaled":
+            if num_cols:
+                base_names.extend(num_cols)
+            else:
+                size = _get_vector_size(transformed_df.schema, col) or 0
+                base_names.extend(["num_scaled"] * size)
+            continue
+
+        base = col[:-4] if col.endswith("_ohe") else col
+        size = _get_vector_size(transformed_df.schema, col) or 0
+        base_names.extend([base] * size)
+
+    if len(base_names) < num_features:
+        base_names.extend([f"f{i}" for i in range(len(base_names), num_features)])
+    return base_names[:num_features]
+
+
+def _map_dim_to_base(dim_name: str, cat_cols: List[str], num_cols: List[str]) -> str | None:
+    if dim_name in num_cols:
+        return dim_name
+    if dim_name in cat_cols:
+        return dim_name
+    for col in cat_cols:
+        if dim_name.startswith(f"{col}_") or dim_name.startswith(f"{col}=") or dim_name.startswith(f"{col}:"):
+            return col
+    if "=" in dim_name:
+        prefix = dim_name.split("=", 1)[0]
+        if prefix in cat_cols:
+            return prefix
+    return None
+
+
+def plot_feature_importance(
+    pipeline_model, df: DataFrame, cat_cols: List[str], num_cols: List[str], report_dir: str
+) -> bool:
     import pandas as pd
     import matplotlib.pyplot as plt
 
@@ -107,14 +229,28 @@ def plot_feature_importance(pipeline_model, df: DataFrame, report_dir: str) -> b
             DecisionTreeClassificationModel,
         ),
     ):
+        transformed = pipeline_model.transform(df)
         importances = model.featureImportances.toArray()
-        labels = [f"f{i}" for i in range(len(importances))]
-
-        pdf = (
-            pd.DataFrame({"feature": labels, "importance": importances})
-            .sort_values("importance", ascending=False)
-            .head(20)
+        dim_names = _get_feature_names_from_metadata(transformed, "features", len(importances))
+        fallback_bases = _build_base_feature_names(
+            transformed, pipeline_model, cat_cols, num_cols, len(importances)
         )
+
+        grouped: Dict[str, float] = {}
+        for i, importance in enumerate(importances):
+            dim_name = dim_names[i]
+            base = _map_dim_to_base(dim_name, cat_cols, num_cols)
+            if base is None and i < len(fallback_bases):
+                base = fallback_bases[i]
+            if base is None:
+                base = dim_name
+            grouped[base] = grouped.get(base, 0.0) + float(importance)
+
+        feature_df = pd.DataFrame(
+            {"feature": list(grouped.keys()), "importance": list(grouped.values())}
+        ).sort_values("importance", ascending=False)
+        save_table(feature_df, Path(report_dir) / "feature_importance.csv")
+        pdf = feature_df.head(20)
 
         plt.figure(figsize=(7, 5))
         plt.barh(pdf["feature"], pdf["importance"], color="#54A24B")
@@ -186,15 +322,46 @@ def main() -> None:
     if train.count() == 0 or test.count() == 0:
         raise RuntimeError("Train/test split produced empty set")
 
+    counts = train.groupBy("label").count().collect()
+    count_map = {int(row["label"]): int(row["count"]) for row in counts}
+    n0 = count_map.get(0, 0)
+    n1 = count_map.get(1, 0)
+    total = n0 + n1
+    if n0 == 0 or n1 == 0:
+        raise RuntimeError("Train split missing one of the classes")
+
+    w0 = total / (2 * n0)
+    w1 = total / (2 * n1)
+    train = train.withColumn(
+        "weight", F.when(F.col("label") == 0, F.lit(w0)).otherwise(F.lit(w1))
+    )
+    test = test.withColumn(
+        "weight", F.when(F.col("label") == 0, F.lit(w0)).otherwise(F.lit(w1))
+    )
+
+    def with_weight_col(model):
+        if model.hasParam("weightCol"):
+            model = model.setParams(weightCol="weight")
+        return model
+
     models = [
-        ("LogisticRegression", LogisticRegression(labelCol="label", featuresCol="features", maxIter=50)),
+        (
+            "LogisticRegression",
+            with_weight_col(LogisticRegression(labelCol="label", featuresCol="features", maxIter=50)),
+        ),
         (
             "RandomForest",
-            RandomForestClassifier(labelCol="label", featuresCol="features", numTrees=100, seed=args.seed),
+            with_weight_col(
+                RandomForestClassifier(
+                    labelCol="label", featuresCol="features", numTrees=100, seed=args.seed
+                )
+            ),
         ),
         (
             "GBT",
-            GBTClassifier(labelCol="label", featuresCol="features", maxIter=50, seed=args.seed),
+            with_weight_col(
+                GBTClassifier(labelCol="label", featuresCol="features", maxIter=50, seed=args.seed)
+            ),
         ),
     ]
 
@@ -212,18 +379,45 @@ def main() -> None:
         labelCol="label", predictionCol="prediction", metricName="f1"
     )
 
-    tuned_specs = []
-    lr = LogisticRegression(labelCol="label", featuresCol="features", maxIter=50)
-    lr_grid = (
-        ParamGridBuilder().addGrid(lr.regParam, [0.0, 0.1]).addGrid(lr.elasticNetParam, [0.0, 0.5]).build()
+    def rank_key(res):
+        return (res["metrics"]["f1"], res["metrics"]["auc"])
+
+    baseline_ranked = sorted(
+        [res for res in results if not res["tuned"]], key=rank_key, reverse=True
     )
-    tuned_specs.append(("LogisticRegression", lr, lr_grid))
+    top2_names = [res["name"] for res in baseline_ranked[:2]]
 
-    rf = RandomForestClassifier(labelCol="label", featuresCol="features", numTrees=100, seed=args.seed)
-    rf_grid = ParamGridBuilder().addGrid(rf.maxDepth, [5, 10]).addGrid(rf.numTrees, [50, 100]).build()
-    tuned_specs.append(("RandomForest", rf, rf_grid))
+    lr = with_weight_col(LogisticRegression(labelCol="label", featuresCol="features", maxIter=50))
+    lr_grid = ParamGridBuilder().addGrid(lr.regParam, [0.0, 0.1]).addGrid(
+        lr.elasticNetParam, [0.0, 0.5]
+    ).build()
 
-    for name, model, grid in tuned_specs:
+    rf = with_weight_col(
+        RandomForestClassifier(labelCol="label", featuresCol="features", numTrees=100, seed=args.seed)
+    )
+    rf_grid = ParamGridBuilder().addGrid(rf.maxDepth, [5, 10]).addGrid(
+        rf.numTrees, [50, 100]
+    ).build()
+
+    gbt = with_weight_col(
+        GBTClassifier(labelCol="label", featuresCol="features", maxIter=50, seed=args.seed)
+    )
+    gbt_grid = (
+        ParamGridBuilder()
+        .addGrid(gbt.maxDepth, [3, 5])
+        .addGrid(gbt.maxIter, [30, 50])
+        .addGrid(gbt.stepSize, [0.05, 0.1])
+        .build()
+    )
+
+    tuned_specs = {
+        "LogisticRegression": (lr, lr_grid),
+        "RandomForest": (rf, rf_grid),
+        "GBT": (gbt, gbt_grid),
+    }
+
+    for name in top2_names:
+        model, grid = tuned_specs[name]
         pipeline = build_pipeline(model, cat_cols, num_cols)
         cv = CrossValidator(
             estimator=pipeline,
@@ -239,16 +433,13 @@ def main() -> None:
         results.append({"name": name, "tuned": True, "metrics": metrics, "model": best})
         print(f"Tuned {name}: f1={metrics['f1']:.4f} auc={metrics['auc']:.4f}")
 
-    def rank_key(res):
-        return (res["metrics"]["f1"], res["metrics"]["auc"])
-
     best_result = max(results, key=rank_key)
     best_model = best_result["model"]
 
     preds_best = best_model.transform(test)
     plot_confusion_matrix(preds_best, args.report_dir)
 
-    if not plot_feature_importance(best_model, train, args.report_dir):
+    if not plot_feature_importance(best_model, train, cat_cols, num_cols, args.report_dir):
         print("Feature importance skipped (final model is not tree-based).")
 
     metrics_rows = []
