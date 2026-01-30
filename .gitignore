@@ -3,11 +3,8 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .vscode/
-data/raw/
-data/processed/
-data/checkpoints/
+data/
 models/
 *.parquet
 *.orc
 *.log
-report/*.jsonl
