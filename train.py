@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import math
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 
 from pyspark.ml import Pipeline
-try:
-    from pyspark.ml.attribute import AttributeGroup
-except ModuleNotFoundError:  # pyspark may not expose AttributeGroup
-    AttributeGroup = None
+AttributeGroup = None
 from pyspark.ml.classification import (
     DecisionTreeClassificationModel,
     GBTClassificationModel,
@@ -43,9 +41,18 @@ def build_preprocess_stages(cat_cols: List[str], num_cols: List[str]) -> List:
         stages.append(OneHotEncoder(inputCols=[idx], outputCols=[ohe], handleInvalid="keep"))
         ohe_cols.append(ohe)
 
-    stages.append(VectorAssembler(inputCols=num_cols, outputCol="num_vec"))
-    stages.append(StandardScaler(inputCol="num_vec", outputCol="num_scaled", withMean=False, withStd=True))
-    stages.append(VectorAssembler(inputCols=ohe_cols + ["num_scaled"], outputCol="features"))
+    num_scaled_col = None
+    if num_cols:
+        stages.append(VectorAssembler(inputCols=num_cols, outputCol="num_vec"))
+        stages.append(
+            StandardScaler(inputCol="num_vec", outputCol="num_scaled", withMean=False, withStd=True)
+        )
+        num_scaled_col = "num_scaled"
+
+    feature_inputs = ohe_cols + ([num_scaled_col] if num_scaled_col else [])
+    if not feature_inputs:
+        raise RuntimeError("No features selected for pipeline.")
+    stages.append(VectorAssembler(inputCols=feature_inputs, outputCol="features"))
     return stages
 
 
@@ -89,7 +96,6 @@ def plot_confusion_matrix(pred_df: DataFrame, report_dir: str) -> None:
     cm = confusion_matrix(pred_df)
     plt.figure(figsize=(4, 3))
     plt.imshow(cm, cmap="Blues")
-    plt.title("Confusion Matrix")
     plt.xticks([0, 1], ["no", "yes"])
     plt.yticks([0, 1], ["no", "yes"])
     for i in range(2):
@@ -214,6 +220,56 @@ def _map_dim_to_base(dim_name: str, cat_cols: List[str], num_cols: List[str]) ->
     return None
 
 
+def _aggregate_base_importances(
+    pipeline_model, df: DataFrame, cat_cols: List[str], num_cols: List[str]
+) -> Dict[str, float]:
+    model = pipeline_model.stages[-1]
+    if isinstance(
+        model,
+        (
+            RandomForestClassificationModel,
+            GBTClassificationModel,
+            DecisionTreeClassificationModel,
+        ),
+    ):
+        importances = model.featureImportances.toArray()
+    elif isinstance(model, LogisticRegressionModel):
+        importances = [abs(float(v)) for v in model.coefficients.toArray()]
+    else:
+        return {}
+
+    transformed = pipeline_model.transform(df)
+    dim_names = _get_feature_names_from_metadata(transformed, "features", len(importances))
+    fallback_bases = _build_base_feature_names(
+        transformed, pipeline_model, cat_cols, num_cols, len(importances)
+    )
+
+    grouped: Dict[str, float] = {}
+    for i, importance in enumerate(importances):
+        dim_name = dim_names[i]
+        base = _map_dim_to_base(dim_name, cat_cols, num_cols)
+        if base is None and i < len(fallback_bases):
+            base = fallback_bases[i]
+        if base is None:
+            base = dim_name
+        grouped[base] = grouped.get(base, 0.0) + float(importance)
+
+    for col in cat_cols + num_cols:
+        grouped.setdefault(col, 0.0)
+    return grouped
+
+
+def _rank_base_features(
+    grouped_importances: Dict[str, float], cat_cols: List[str], num_cols: List[str]
+) -> List[str]:
+    base_features = cat_cols + num_cols
+    index = {name: i for i, name in enumerate(base_features)}
+    return sorted(
+        base_features,
+        key=lambda name: (-grouped_importances.get(name, 0.0), index[name]),
+    )
+
+
 def plot_feature_importance(
     pipeline_model, df: DataFrame, cat_cols: List[str], num_cols: List[str], report_dir: str
 ) -> bool:
@@ -255,7 +311,6 @@ def plot_feature_importance(
         plt.figure(figsize=(7, 5))
         plt.barh(pdf["feature"], pdf["importance"], color="#54A24B")
         plt.gca().invert_yaxis()
-        plt.title("Top Feature Importances")
         plt.xlabel("importance")
         save_fig(Path(report_dir) / "feature_importance.png")
         return True
@@ -442,6 +497,69 @@ def main() -> None:
     if not plot_feature_importance(best_model, train, cat_cols, num_cols, args.report_dir):
         print("Feature importance skipped (final model is not tree-based).")
 
+    def build_ablation_estimator():
+        fitted_model = best_model.stages[-1]
+        if best_result["name"] == "LogisticRegression":
+            lr = LogisticRegression(labelCol="label", featuresCol="features")
+            lr = lr.setParams(
+                maxIter=fitted_model.getOrDefault(fitted_model.maxIter),
+                regParam=fitted_model.getOrDefault(fitted_model.regParam),
+                elasticNetParam=fitted_model.getOrDefault(fitted_model.elasticNetParam),
+            )
+            return with_weight_col(lr)
+        if best_result["name"] == "RandomForest":
+            rf = RandomForestClassifier(
+                labelCol="label", featuresCol="features", seed=args.seed
+            ).setParams(
+                numTrees=fitted_model.getOrDefault(fitted_model.numTrees),
+                maxDepth=fitted_model.getOrDefault(fitted_model.maxDepth),
+            )
+            return with_weight_col(rf)
+        if best_result["name"] == "GBT":
+            gbt = GBTClassifier(
+                labelCol="label", featuresCol="features", seed=args.seed
+            ).setParams(
+                maxDepth=fitted_model.getOrDefault(fitted_model.maxDepth),
+                maxIter=fitted_model.getOrDefault(fitted_model.maxIter),
+                stepSize=fitted_model.getOrDefault(fitted_model.stepSize),
+            )
+            return with_weight_col(gbt)
+        raise RuntimeError(f"Unsupported model for ablation: {best_result['name']}")
+
+    base_importances = _aggregate_base_importances(best_model, train, cat_cols, num_cols)
+    ordered_features = _rank_base_features(base_importances, cat_cols, num_cols)
+    total_features = len(ordered_features)
+    ablation_rows = []
+    for frac in [1.0, 0.8, 0.6]:
+        k = int(math.ceil(frac * total_features))
+        selected = set(ordered_features[:k])
+        sel_cat = [c for c in cat_cols if c in selected]
+        sel_num = [c for c in num_cols if c in selected]
+        ablation_model = build_ablation_estimator()
+        pipeline = build_pipeline(ablation_model, sel_cat, sel_num)
+        fitted = pipeline.fit(train)
+        preds = fitted.transform(test)
+        metrics = evaluate_predictions(preds)
+        ablation_rows.append(
+            {
+                "fraction": frac,
+                "num_features": len(selected),
+                "accuracy": metrics["accuracy"],
+                "precision": metrics["precision"],
+                "recall": metrics["recall"],
+                "f1": metrics["f1"],
+                "auc": metrics["auc"],
+                "model_name": best_result["name"],
+                "tuned": best_result["tuned"],
+            }
+        )
+        print(f"Ablation {frac:.1f}: f1={metrics['f1']:.4f} auc={metrics['auc']:.4f}")
+
+    import pandas as pd
+
+    ablation_df = pd.DataFrame(ablation_rows)
+    save_table(ablation_df, Path(args.report_dir) / "feature_ablation.csv")
+
     metrics_rows = []
     for res in results:
         row = {
@@ -450,8 +568,6 @@ def main() -> None:
             **res["metrics"],
         }
         metrics_rows.append(row)
-
-    import pandas as pd
 
     metrics_df = pd.DataFrame(metrics_rows)
     save_table(metrics_df, Path(args.report_dir) / "metrics_table.csv")

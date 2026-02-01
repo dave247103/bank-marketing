@@ -166,7 +166,6 @@ def plot_class_balance(df: DataFrame, report_dir: str) -> None:
 
     plt.figure(figsize=(4, 3))
     plt.bar(counts["label_name"], counts["count"], color="#4C78A8")
-    plt.title("Class Balance")
     plt.xlabel("y")
     plt.ylabel("count")
     save_fig(Path(report_dir) / "class_balance.png")
@@ -195,7 +194,6 @@ def plot_histograms(df: DataFrame, report_dir: str, columns: Iterable[str]) -> N
 
         plt.figure(figsize=(5, 3.5))
         plt.bar(pdf["center"], pdf["count"], width=width * 0.9, color="#F58518")
-        plt.title(f"Histogram: {col}")
         plt.xlabel(col)
         plt.ylabel("count")
         save_fig(Path(report_dir) / f"hist_{col}.png")
@@ -217,7 +215,11 @@ def plot_corr_heatmap(df: DataFrame, report_dir: str, columns: List[str]) -> Non
     plt.colorbar()
     plt.xticks(range(len(cols)), cols, rotation=45, ha="right")
     plt.yticks(range(len(cols)), cols)
-    plt.title("Numeric Correlation")
+    for i in range(len(cols)):
+        for j in range(len(cols)):
+            val = corr[i, j]
+            color = "white" if abs(val) > 0.5 else "black"
+            plt.text(j, i, format(val, ".2g"), ha="center", va="center", color=color)
     save_fig(Path(report_dir) / "corr_heatmap.png")
 
 
